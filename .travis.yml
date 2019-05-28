@@ -1,0 +1,18 @@
+sudo: require
+dist: xenial
+
+language: cpp
+
+compiler:
+- gcc
+
+cache:
+  directories:
+  - /var/cache/apt/archives/*.deb
+
+script:
+- cd Toolchain
+- ./BuildIt.sh
+- source ./UseIt.sh
+- cd ../Kernel
+- ./makeall.sh
