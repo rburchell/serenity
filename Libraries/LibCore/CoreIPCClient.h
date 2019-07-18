@@ -12,6 +12,33 @@
 #include <sys/types.h>
 #include <sys/uio.h>
 #include <unistd.h>
+#include <Kernel/Syscall.h>
+
+extern "C" {
+
+inline void start_trace_ipc(const char* name)
+{
+    Syscall::SC_trace_begin_params param;
+    param.category = "IPC";
+    param.category_length = 3;
+    param.name = name;
+    param.name_length = strlen(name);
+    int rc = syscall(SC_trace_begin, &param);
+    ASSERT(rc == 0);
+}
+
+inline void end_trace_ipc(const char* name)
+{
+    Syscall::SC_trace_end_params param;
+    param.category = "IPC";
+    param.category_length = 3;
+    param.name = name;
+    param.name_length = strlen(name);
+    int rc = syscall(SC_trace_end, &param);
+    ASSERT(rc == 0);
+}
+
+}
 
 //#define CIPC_DEBUG
 
@@ -158,12 +185,14 @@ namespace Client {
         template<typename MessageType>
         ServerMessage sync_request(const ClientMessage& request, MessageType response_type)
         {
+            start_trace_ipc(String::format("sync_request_%d", response_type).characters());
             bool success = post_message_to_server(request);
             ASSERT(success);
 
             ServerMessage response;
             success = wait_for_specific_event(response_type, response);
             ASSERT(success);
+            end_trace_ipc(String::format("sync_request_%d", response_type).characters());
             return response;
         }
 

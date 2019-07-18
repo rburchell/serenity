@@ -2141,6 +2141,34 @@ int Process::sys$bind(int sockfd, const sockaddr* address, socklen_t address_len
     return socket.bind(address, address_length);
 }
 
+int Process::sys$trace_begin(const Syscall::SC_trace_begin_params* p)
+{
+    if (!validate_read(p->category, p->category_length)) {
+        ASSERT_NOT_REACHED();
+        return -EFAULT;
+    }
+    if (!validate_read(p->name, p->name_length)) {
+        ASSERT_NOT_REACHED();
+        return -EFAULT;
+    }
+    dbgprintf("{\"pid\":%d,\"tid\":%d,\"ts\":%u,\"ph\":\"b\",\"cat\":\"%s\",\"name\":\"%s\",\"id\":\"%p\",\"args\":{}},\n", current->process().pid(), current->tid(), u32(g_uptime), p->category, p->name, current->process().pid());
+    return 0;
+}
+
+int Process::sys$trace_end(const Syscall::SC_trace_end_params* p)
+{
+    if (!validate_read(p->category, p->category_length)) {
+        ASSERT_NOT_REACHED();
+        return -EFAULT;
+    }
+    if (!validate_read(p->name, p->name_length)) {
+        ASSERT_NOT_REACHED();
+        return -EFAULT;
+    }
+    dbgprintf("{\"pid\":%d,\"tid\":%d,\"ts\":%u,\"ph\":\"e\",\"cat\":\"%s\",\"name\":\"%s\",\"id\":\"%p\",\"args\":{}},\n", current->process().pid(), current->tid(), u32(g_uptime), p->category, p->name, current->process().pid());
+    return 0;
+}
+
 int Process::sys$listen(int sockfd, int backlog)
 {
     auto* description = file_description(sockfd);

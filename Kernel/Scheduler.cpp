@@ -435,7 +435,10 @@ bool Scheduler::context_switch(Thread& thread)
         // mark it as runnable for the next round.
         if (current->state() == Thread::Running)
             current->set_state(Thread::Runnable);
-
+#define BEGIN "{\"pid\":%d,\"tid\":%d,\"ts\":%u,\"ph\":\"B\",\"cat\":\"Scheduler\",\"name\":\"%s:%d:%d\"},\n"
+#define END "{\"pid\":%d,\"tid\":%d,\"ts\":%u,\"ph\":\"E\",\"cat\":\"Scheduler\",\"name\":\"%s:%d:%d\"},\n"
+        dbgprintf(END BEGIN, 0, 0, u32(g_uptime), current->process().name().characters(), current->process().pid(), current->tid(),
+        0, 0, u32(g_uptime), thread.process().name().characters(), thread.process().pid(), thread.tid());
 #ifdef LOG_EVERY_CONTEXT_SWITCH
         dbgprintf("Scheduler: %s(%u:%u) -> %s(%u:%u) %w:%x\n",
             current->process().name().characters(), current->process().pid(), current->tid(),

@@ -195,6 +195,8 @@ public:
     int sys$fchown(int fd, uid_t, gid_t);
     int sys$socket(int domain, int type, int protocol);
     int sys$bind(int sockfd, const sockaddr* addr, socklen_t);
+    int sys$trace_begin(const Syscall::SC_trace_begin_params*);
+    int sys$trace_end(const Syscall::SC_trace_end_params*);
     int sys$listen(int sockfd, int backlog);
     int sys$accept(int sockfd, sockaddr*, socklen_t*);
     int sys$connect(int sockfd, const sockaddr*, socklen_t);

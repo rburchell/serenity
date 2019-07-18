@@ -14,6 +14,8 @@ struct timeval;
     __ENUMERATE_SYSCALL(open)                   \
     __ENUMERATE_SYSCALL(close)                  \
     __ENUMERATE_SYSCALL(read)                   \
+    __ENUMERATE_SYSCALL(trace_begin)            \
+    __ENUMERATE_SYSCALL(trace_end)              \
     __ENUMERATE_SYSCALL(lseek)                  \
     __ENUMERATE_SYSCALL(kill)                   \
     __ENUMERATE_SYSCALL(getuid)                 \
@@ -158,6 +160,20 @@ struct SC_mmap_params {
     int32_t fd;
     int32_t offset; // FIXME: 64-bit off_t?
     const char* name { nullptr };
+};
+
+struct SC_trace_begin_params {
+    const char* category;
+    int category_length;
+    const char* name;
+    int name_length;
+};
+
+struct SC_trace_end_params {
+    const char* category;
+    int category_length;
+    const char* name;
+    int name_length;
 };
 
 struct SC_open_params {
