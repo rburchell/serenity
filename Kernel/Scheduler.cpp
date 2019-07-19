@@ -9,13 +9,19 @@
 struct SchedulerData {
     typedef IntrusiveList<Thread, &Thread::m_runnable_list_node> ThreadList;
 
-    ThreadList m_runnable_threads;
+    SchedulerData()
+    {
+        dbg() << "Creating SchedulerData";
+        m_runnable_threads_by_priority.resize(int(Process::LastPriority) + 1);
+    }
+
+    Vector<ThreadList, Process::LastPriority + 1> m_runnable_threads_by_priority;
     ThreadList m_nonrunnable_threads;
 
-    ThreadList& thread_list_for_state(Thread::State state)
+    ThreadList& thread_list_for_thread(Thread& thread)
     {
-        if (Thread::is_runnable_state(state))
-            return m_runnable_threads;
+        if (Thread::is_runnable_state(thread.state()))
+            return m_runnable_threads_by_priority[thread.process().priority()];
         return m_nonrunnable_threads;
     }
 };
@@ -29,7 +35,7 @@ void Scheduler::init_thread(Thread& thread)
 
 void Scheduler::update_state_for_thread(Thread& thread)
 {
-    auto& list = g_scheduler_data->thread_list_for_state(thread.state());
+    auto& list = g_scheduler_data->thread_list_for_thread(thread);
 
     if (list.contains(thread))
         return;
@@ -40,12 +46,13 @@ void Scheduler::update_state_for_thread(Thread& thread)
 IterationDecision Scheduler::for_each_runnable_func(Function<IterationDecision(Thread&)>&& callback)
 {
     ASSERT_INTERRUPTS_DISABLED();
-    auto& tl = g_scheduler_data->m_runnable_threads;
-    for (auto it = tl.begin(); it != tl.end();) {
-        auto thread = *it;
-        it = ++it;
-        if (callback(*thread) == IterationDecision::Break)
-            return IterationDecision::Break;
+    for (auto& tl : g_scheduler_data->m_runnable_threads_by_priority) {
+        for (auto it = tl.begin(); it != tl.end();) {
+            auto thread = *it;
+            it = ++it;
+            if (callback(*thread) == IterationDecision::Break)
+                return IterationDecision::Break;
+        }
     }
 
     return IterationDecision::Continue;
@@ -375,40 +382,98 @@ bool Scheduler::pick_next()
 
 #ifdef SCHEDULER_RUNNABLE_DEBUG
     dbgprintf("Non-runnables:\n");
-    Thread::for_each_nonrunnable([](Thread& thread) -> IterationDecision {
+    Scheduler::for_each_nonrunnable([](Thread& thread) -> IterationDecision {
         auto& process = thread.process();
         dbgprintf("[K%x] %-12s %s(%u:%u) @ %w:%x\n", &process, thread.state_string(), process.name().characters(), process.pid(), thread.tid(), thread.tss().cs, thread.tss().eip);
         return IterationDecision::Continue;
     });
 
     dbgprintf("Runnables:\n");
-    Thread::for_each_runnable([](Thread& thread) -> IterationDecision {
+    Scheduler::for_each_runnable([](Thread& thread) -> IterationDecision {
         auto& process = thread.process();
         dbgprintf("[K%x] %-12s %s(%u:%u) @ %w:%x\n", &process, thread.state_string(), process.name().characters(), process.pid(), thread.tid(), thread.tss().cs, thread.tss().eip);
         return IterationDecision::Continue;
     });
 #endif
 
-    auto& runnable_list = g_scheduler_data->m_runnable_threads;
-    if (runnable_list.is_empty())
-        return context_switch(s_colonel_process->main_thread());
+    Process::Priority current_priority_level = Process::HighPriority;
 
-    auto* previous_head = runnable_list.first();
-    for (;;) {
-        // Move head to tail.
-        runnable_list.append(*previous_head);
-        auto* thread = runnable_list.first();
+    const int schedules_before_dropping_priority = 5;
+    static int remaining_schedules_before_dropping_priority = schedules_before_dropping_priority;
+    const int schedules_before_raising_priority = 3;
+    static int remaining_schedules_before_raising_priority = schedules_before_raising_priority;
 
-        if (!thread->process().is_being_inspected() && (thread->state() == Thread::Runnable || thread->state() == Thread::Running)) {
-#ifdef SCHEDULER_DEBUG
-            dbgprintf("switch to %s(%u:%u) @ %w:%x\n", thread->process().name().characters(), thread->process().pid(), thread->tid(), thread->tss().cs, thread->tss().eip);
-#endif
-            return context_switch(*thread);
+    while (true) {
+        ASSERT(current_priority_level >= Process::FirstPriority && current_priority_level <= Process::LastPriority);
+
+        auto& runnable_list = g_scheduler_data->m_runnable_threads_by_priority[current_priority_level];
+        bool can_schedule = true;
+        can_schedule = can_schedule && !runnable_list.is_empty();
+        can_schedule = can_schedule && remaining_schedules_before_dropping_priority > 0;
+        can_schedule = can_schedule && remaining_schedules_before_raising_priority > 0;
+
+        //dbgprintf("trying to find a workable schedule. list_empty: %d remaining_drop: %d remaining_raise: %d, current_priority %d\n", runnable_list.is_empty(), remaining_schedules_before_dropping_priority, remaining_schedules_before_raising_priority, current_priority_level);
+
+        if (!can_schedule) {
+            if (runnable_list.is_empty()) {
+                // Hope we figure something out...
+                current_priority_level = Process::Priority(int(current_priority_level) - 1);
+                if (current_priority_level < Process::FirstPriority) {
+                    current_priority_level = Process::LastPriority;
+                    // Nobody is runnable now. Give up, and try again later.
+                    return context_switch(s_colonel_process->main_thread());
+                }
+            }
+
+            if (remaining_schedules_before_dropping_priority < 0) {
+                //dbg() << "Lowering priority level from " << current_priority_level;
+                current_priority_level = Process::Priority(int(current_priority_level) - 1);
+                if (current_priority_level < Process::FirstPriority)
+                    current_priority_level = Process::LastPriority;
+                remaining_schedules_before_dropping_priority = schedules_before_dropping_priority;
+                continue;
+            }
+
+            if (remaining_schedules_before_raising_priority < 0) {
+                //dbg() << "Raising priority level from " << current_priority_level;
+                current_priority_level = Process::Priority(int(current_priority_level) + 1);
+                if (current_priority_level > Process::LastPriority)
+                    current_priority_level = Process::FirstPriority;
+                remaining_schedules_before_raising_priority = schedules_before_raising_priority;
+                continue;
+            }
+
+            continue;
         }
 
-        if (thread == previous_head) {
-            // Back at process_head, nothing wants to run. Send in the colonel!
-            return context_switch(s_colonel_process->main_thread());
+        ASSERT(!runnable_list.is_empty());
+        auto list_head = runnable_list.first();
+
+        for (;;) {
+            auto thread = runnable_list.first();
+            // We have a thread to run. Move it to the end of the runnable list.
+            runnable_list.append(*thread);
+
+            // Try run it, if we can.
+            if (!thread->process().is_being_inspected() && (thread->state() == Thread::Runnable || thread->state() == Thread::Running)) {
+    #ifdef SCHEDULER_DEBUG
+                dbgprintf("switch to %s(%u:%u) @ %w:%x\n", thread->process().name().characters(), thread->process().pid(), thread->tid(), thread->tss().cs, thread->tss().eip);
+    #endif
+                return context_switch(*thread);
+            }
+
+            remaining_schedules_before_dropping_priority--;
+            remaining_schedules_before_raising_priority--;
+
+            if (thread == list_head) {
+                // Nothing else to run at this priority level. Lower it and try again.
+                current_priority_level = Process::Priority(int(current_priority_level) - 1);
+                if (current_priority_level < Process::FirstPriority) {
+                    // Nothing to run, and we tried our best. Give up for now.
+                    current_priority_level = Process::LastPriority;
+                    return context_switch(s_colonel_process->main_thread());
+                }
+            }
         }
     }
 }
