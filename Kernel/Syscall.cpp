@@ -5,6 +5,7 @@
 #include <Kernel/ProcessTracer.h>
 #include <Kernel/Scheduler.h>
 #include <Kernel/Syscall.h>
+#include <AK/Tracer.h>
 
 extern "C" void syscall_trap_entry(RegisterDump&);
 extern "C" void syscall_trap_handler();
@@ -326,8 +327,8 @@ static u32 handle(RegisterDump& regs, u32 function, u32 arg1, u32 arg2, u32 arg3
 
 void syscall_trap_entry(RegisterDump& regs)
 {
+    DurationTracer tracer("syscall", to_string(Syscall::Function(regs.eax)));
     current->process().big_lock().lock();
-    auto start = g_uptime;
     u32 function = regs.eax;
     u32 arg1 = regs.edx;
     u32 arg2 = regs.ecx;
@@ -335,11 +336,5 @@ void syscall_trap_entry(RegisterDump& regs)
     regs.eax = Syscall::handle(regs, function, arg1, arg2, arg3);
     if (auto* tracer = current->process().tracer())
         tracer->did_syscall(function, arg1, arg2, arg3, regs.eax);
-
- #define BEGIN "{\"pid\":%d,\"tid\":%d,\"ts\":%u,\"dur\":%u,\"ph\":\"X\",\"cat\":\"syscall\",\"name\":\"sys_%s\"},\n"
- ASSERT(current);
-     if (g_uptime != start)
-         dbgprintf(BEGIN, current->process().pid(), current->tid(), u32(start), u32(g_uptime) - u32(start), to_string(Syscall::Function(function)));
- 
     current->process().big_lock().unlock();
 }

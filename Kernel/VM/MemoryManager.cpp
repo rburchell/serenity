@@ -2,6 +2,7 @@
 #include "Process.h"
 #include "StdLib.h"
 #include <AK/Assertions.h>
+#include <AK/Tracer.h>
 #include <AK/kstdio.h>
 #include <Kernel/Arch/i386/CPU.h>
 #include <Kernel/FileSystem/Inode.h>
@@ -401,6 +402,7 @@ PageFaultResponse MemoryManager::handle_page_fault(const PageFault& fault)
 {
     ASSERT_INTERRUPTS_DISABLED();
     ASSERT(current);
+    DurationTracer tracer("malloc", "handle_page_fault");
 #ifdef PAGE_FAULT_DEBUG
     dbgprintf("MM: handle_page_fault(%w) at L%x\n", fault.code(), fault.vaddr().get());
 #endif
@@ -453,6 +455,7 @@ PageFaultResponse MemoryManager::handle_page_fault(const PageFault& fault)
 
 RefPtr<Region> MemoryManager::allocate_kernel_region(size_t size, const StringView& name, bool user_accessible, bool should_commit)
 {
+    DurationTracer tracer("malloc", "allocate_kernel_region");
     InterruptDisabler disabler;
     ASSERT(!(size % PAGE_SIZE));
     auto range = kernel_page_directory().range_allocator().allocate_anywhere(size);
