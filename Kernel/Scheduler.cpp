@@ -1,4 +1,5 @@
 #include <AK/TemporaryChange.h>
+#include <AK/Tracer.h>
 #include <Kernel/Arch/i386/PIT.h>
 #include <Kernel/Devices/PCSpeaker.h>
 #include <Kernel/FileSystem/FileDescription.h>
@@ -435,10 +436,10 @@ bool Scheduler::context_switch(Thread& thread)
         // mark it as runnable for the next round.
         if (current->state() == Thread::Running)
             current->set_state(Thread::Runnable);
-#define BEGIN "{\"pid\":%d,\"tid\":%d,\"ts\":%u,\"ph\":\"B\",\"cat\":\"Scheduler\",\"name\":\"%s:%d:%d\"},\n"
-#define END "{\"pid\":%d,\"tid\":%d,\"ts\":%u,\"ph\":\"E\",\"cat\":\"Scheduler\",\"name\":\"%s:%d:%d\"},\n"
-        dbgprintf(END BEGIN, 0, 0, u32(g_uptime), current->process().name().characters(), current->process().pid(), current->tid(),
-        0, 0, u32(g_uptime), thread.process().name().characters(), thread.process().pid(), thread.tid());
+
+        // TODO: nice to avoid two print calls, format, etc.. :/
+        AK::NestedTracer::end_trace("Scheduler", String::format("%s:%d:%d:", current->process().name().characters(), current->process().pid(), current->tid()).characters(), g_uptime, 0, 0);
+        AK::NestedTracer::start_trace("Scheduler", String::format("%s:%d:%d:", thread.process().name().characters(), thread.process().pid(), thread.tid()).characters(), g_uptime, 0, 0);
 #ifdef LOG_EVERY_CONTEXT_SWITCH
         dbgprintf("Scheduler: %s(%u:%u) -> %s(%u:%u) %w:%x\n",
             current->process().name().characters(), current->process().pid(), current->tid(),

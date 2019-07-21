@@ -4,6 +4,7 @@
 #include <AK/StringBuilder.h>
 #include <AK/Time.h>
 #include <AK/Types.h>
+#include <AK/Tracer.h>
 #include <Kernel/Arch/i386/CPU.h>
 #include <Kernel/Arch/i386/PIT.h>
 #include <Kernel/Devices/NullDevice.h>
@@ -585,6 +586,8 @@ Process* Process::create_kernel_process(String&& name, void (*e)())
     return process;
 }
 
+static u32 process_count = 0;
+
 Process::Process(String&& name, uid_t uid, gid_t gid, pid_t ppid, RingLevel ring, RefPtr<Custody> cwd, RefPtr<Custody> executable, TTY* tty, Process* fork_parent)
     : m_name(move(name))
     , m_pid(next_pid++) // FIXME: RACE: This variable looks racy!
@@ -598,6 +601,7 @@ Process::Process(String&& name, uid_t uid, gid_t gid, pid_t ppid, RingLevel ring
     , m_tty(tty)
     , m_ppid(ppid)
 {
+    AK::CounterTracer::trace_counter("Process", "count", g_uptime, ++process_count, 0);
     dbgprintf("Process: New process PID=%u with name=%s\n", m_pid, m_name.characters());
 
     m_page_directory = PageDirectory::create_for_userspace(*this, fork_parent ? &fork_parent->page_directory().range_allocator() : nullptr);
@@ -652,6 +656,7 @@ Process::Process(String&& name, uid_t uid, gid_t gid, pid_t ppid, RingLevel ring
 
 Process::~Process()
 {
+    AK::CounterTracer::trace_counter("Process", "count", g_uptime, --process_count, 0);
     dbgprintf("~Process{%p} name=%s pid=%d, m_fds=%d\n", this, m_name.characters(), pid(), m_fds.size());
     delete m_main_thread;
     m_main_thread = nullptr;
@@ -2151,7 +2156,7 @@ int Process::sys$trace_begin(const Syscall::SC_trace_begin_params* p)
         ASSERT_NOT_REACHED();
         return -EFAULT;
     }
-    dbgprintf("{\"pid\":%d,\"tid\":%d,\"ts\":%u,\"ph\":\"b\",\"cat\":\"%s\",\"name\":\"%s\",\"id\":\"%p\",\"args\":{}},\n", current->process().pid(), current->tid(), u32(g_uptime), p->category, p->name, current->process().pid());
+    dbgprintf("{\"pid\":%d,\"tid\":%d,\"ts\":%u,\"ph\":\"b\",\"cat\":\"%s\",\"name\":\"%s\",\"id\":\"%p\",\"args\":{}},\n", current->process().pid(), current->tid(), u32(g_uptime) * 1000, p->category, p->name, current->process().pid());
     return 0;
 }
 
@@ -2165,7 +2170,7 @@ int Process::sys$trace_end(const Syscall::SC_trace_end_params* p)
         ASSERT_NOT_REACHED();
         return -EFAULT;
     }
-    dbgprintf("{\"pid\":%d,\"tid\":%d,\"ts\":%u,\"ph\":\"e\",\"cat\":\"%s\",\"name\":\"%s\",\"id\":\"%p\",\"args\":{}},\n", current->process().pid(), current->tid(), u32(g_uptime), p->category, p->name, current->process().pid());
+    dbgprintf("{\"pid\":%d,\"tid\":%d,\"ts\":%u,\"ph\":\"e\",\"cat\":\"%s\",\"name\":\"%s\",\"id\":\"%p\",\"args\":{}},\n", current->process().pid(), current->tid(), u32(g_uptime) * 1000, p->category, p->name, current->process().pid());
     return 0;
 }
 

@@ -5,6 +5,7 @@
 #include <Kernel/Scheduler.h>
 #include <Kernel/Thread.h>
 #include <Kernel/VM/MemoryManager.h>
+#include <AK/Tracer.h>
 #include <LibC/signal_numbers.h>
 
 //#define SIGNAL_DEBUG
@@ -21,10 +22,13 @@ HashTable<Thread*>& thread_table()
 static const u32 default_kernel_stack_size = 65536;
 static const u32 default_userspace_stack_size = 65536;
 
+static u32 thread_count = 0;
+
 Thread::Thread(Process& process)
     : m_process(process)
     , m_tid(process.m_next_tid++)
 {
+    AK::CounterTracer::trace_counter("Thread", "count", g_uptime, ++thread_count, 0);
     dbgprintf("Thread{%p}: New thread TID=%u in %s(%u)\n", this, m_tid, process.name().characters(), process.pid());
     set_default_signal_dispositions();
     m_fpu_state = (FPUState*)kmalloc_aligned(sizeof(FPUState), 16);
@@ -80,6 +84,7 @@ Thread::Thread(Process& process)
 
 Thread::~Thread()
 {
+    AK::CounterTracer::trace_counter("Thread", "count", g_uptime, --thread_count, 0);
     dbgprintf("~Thread{%p}\n", this);
     kfree_aligned(m_fpu_state);
     {
